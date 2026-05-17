@@ -141,4 +141,3 @@ The application uses Laravel's `local` disk only.
 - Never commit private keys, Alchemy keys, database passwords, uploaded medical files, or logs.
 - Use test accounts and Sepolia ETH only.
 - Rotate keys immediately if a private key was ever exposed.
-

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>HealthChain Technical Documentation</title>
+  <style>
+    @page {
+      margin: 18mm 16mm;
+      size: A4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      color: #172033;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    h1, h2, h3 {
+      color: #0f172a;
+      line-height: 1.15;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 34px;
+      letter-spacing: -0.01em;
+    }
+
+    h2 {
+      border-bottom: 1px solid #d8e0ea;
+      font-size: 20px;
+      margin-top: 28px;
+      padding-bottom: 8px;
+    }
+
+    h3 {
+      font-size: 14px;
+      margin-top: 18px;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    ul, ol {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+
+    li {
+      margin: 4px 0;
+    }
+
+    code {
+      background: #eef4fb;
+      border-radius: 4px;
+      color: #124d86;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 11px;
+      padding: 1px 4px;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    th, td {
+      border: 1px solid #d8e0ea;
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f1f6fb;
+      color: #223047;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .cover {
+      border-bottom: 4px solid #0d9488;
+      margin-bottom: 24px;
+      padding: 24px 0 22px;
+    }
+
+    .eyebrow {
+      color: #2563eb;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      color: #526176;
+      font-size: 15px;
+      margin-top: 12px;
+      max-width: 680px;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(3, 1fr);
+      margin-top: 22px;
+    }
+
+    .meta-card, .card {
+      background: #f8fbfd;
+      border: 1px solid #d8e0ea;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .meta-card strong {
+      color: #0f172a;
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .meta-card span {
+      color: #526176;
+      display: block;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 10px;
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+    }
+
+    .grid-2 {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .grid-3 {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .pill {
+      background: #e8f7f4;
+      border: 1px solid #b9e6df;
+      border-radius: 999px;
+      color: #0f766e;
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      margin: 3px 4px 3px 0;
+      padding: 3px 8px;
+      text-transform: uppercase;
+    }
+
+    .note {
+      background: #fff8e6;
+      border: 1px solid #f1d28a;
+      border-radius: 8px;
+      color: #6b4e00;
+      margin-top: 10px;
+      padding: 10px 12px;
+    }
+
+    .diagram {
+      background: #ffffff;
+      border: 1px solid #d8e0ea;
+      border-radius: 10px;
+      margin-top: 12px;
+      padding: 12px;
+    }
+
+    .page-break {
+      break-before: page;
+    }
+
+    .small {
+      color: #526176;
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="eyebrow">Technical Documentation</div>
+    <h1>HealthChain</h1>
+    <p class="subtitle">
+      Patient-controlled, blockchain-audited health data access management system using a Sepolia smart contract,
+      Laravel API, local PostgreSQL storage, and React wallet-based workflows.
+    </p>
+    <div class="meta">
+      <div class="meta-card">
+        <strong>Contract Network</strong>
+        <span>Ethereum Sepolia, chainId 11155111</span>
+      </div>
+      <div class="meta-card">
+        <strong>Contract Address</strong>
+        <span>0xc054E3bbCE68b074dbF23434082afc9F7aCFcbD2</span>
+      </div>
+      <div class="meta-card">
+        <strong>Local Stack</strong>
+        <span>React + Laravel 11 + PostgreSQL</span>
+      </div>
+    </div>
+  </section>
+
+  <h2>1. Executive Summary</h2>
+  <p>
+    HealthChain separates access control from health record storage. Patients grant and revoke access on-chain,
+    while sensitive medical profiles, documents, and encrypted file attachments remain in a local PostgreSQL-backed
+    Laravel application. The smart contract stores only permission state, audit events, provider registry status,
+    emergency contacts, data scopes, and SHA-256 anchors of plaintext records.
+  </p>
+  <p>
+    This design gives patients direct control over scope-specific provider access and gives administrators a verifiable
+    audit trail without placing medical content on a public blockchain.
+  </p>
+
+  <h2>2. System Architecture</h2>
+  <div class="diagram">
+    <svg width="100%" viewBox="0 0 860 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HealthChain system architecture">
+      <defs>
+        <linearGradient id="blueTeal" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#2563eb"/>
+          <stop offset="100%" stop-color="#0d9488"/>
+        </linearGradient>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#526176"/>
+        </marker>
+      </defs>
+
+      <rect x="20" y="35" width="205" height="110" rx="10" fill="#eef6ff" stroke="#9fc4f5"/>
+      <text x="42" y="65" font-size="16" font-weight="700" fill="#0f172a">React Frontend</text>
+      <text x="42" y="88" font-size="12" fill="#526176">Vite, Tailwind, ethers.js</text>
+      <text x="42" y="110" font-size="12" fill="#526176">Patient / Provider / Admin</text>
+      <text x="42" y="132" font-size="12" fill="#526176">MetaMask wallet auth</text>
+
+      <rect x="328" y="35" width="205" height="110" rx="10" fill="#f4fbf9" stroke="#9adbd2"/>
+      <text x="350" y="65" font-size="16" font-weight="700" fill="#0f172a">Laravel API</text>
+      <text x="350" y="88" font-size="12" fill="#526176">Sanctum authenticated API</text>
+      <text x="350" y="110" font-size="12" fill="#526176">Encryption + validation</text>
+      <text x="350" y="132" font-size="12" fill="#526176">Read-only chain checks</text>
+
+      <rect x="635" y="35" width="205" height="110" rx="10" fill="#fff8e6" stroke="#f1d28a"/>
+      <text x="657" y="65" font-size="16" font-weight="700" fill="#0f172a">Sepolia Contract</text>
+      <text x="657" y="88" font-size="12" fill="#526176">Provider registry</text>
+      <text x="657" y="110" font-size="12" fill="#526176">Permissions + scopes</text>
+      <text x="657" y="132" font-size="12" fill="#526176">Audit events + hashes</text>
+
+      <rect x="328" y="245" width="205" height="110" rx="10" fill="#fbf5ff" stroke="#d8b4fe"/>
+      <text x="350" y="275" font-size="16" font-weight="700" fill="#0f172a">PostgreSQL</text>
+      <text x="350" y="298" font-size="12" fill="#526176">users</text>
+      <text x="350" y="320" font-size="12" fill="#526176">documents</text>
+      <text x="350" y="342" font-size="12" fill="#526176">encryption_keys</text>
+
+      <rect x="635" y="245" width="205" height="110" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+      <text x="657" y="275" font-size="16" font-weight="700" fill="#0f172a">Local Disk</text>
+      <text x="657" y="298" font-size="12" fill="#526176">Encrypted attachments</text>
+      <text x="657" y="320" font-size="12" fill="#526176">storage/app/documents</text>
+      <text x="657" y="342" font-size="12" fill="#526176">No S3 or cloud storage</text>
+
+      <line x1="225" y1="90" x2="328" y2="90" stroke="#526176" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="244" y="78" font-size="11" fill="#526176">REST API</text>
+
+      <line x1="533" y1="90" x2="635" y2="90" stroke="#526176" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="548" y="78" font-size="11" fill="#526176">eth_call</text>
+
+      <path d="M125 145 C160 205, 645 205, 738 145" fill="none" stroke="#526176" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="330" y="194" font-size="11" fill="#526176">MetaMask signed transactions</text>
+
+      <line x1="430" y1="145" x2="430" y2="245" stroke="#526176" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="443" y="203" font-size="11" fill="#526176">encrypted metadata</text>
+
+      <path d="M533 300 L635 300" stroke="#526176" stroke-width="2" marker-end="url(#arrow)"/>
+      <text x="548" y="288" font-size="11" fill="#526176">encrypted files</text>
+
+      <rect x="55" y="380" width="750" height="28" rx="14" fill="url(#blueTeal)" opacity="0.12"/>
+      <text x="84" y="399" font-size="12" font-weight="700" fill="#0f766e">
+        Backend always verifies on-chain permissions before returning protected records or files.
+      </text>
+    </svg>
+  </div>
+
+  <div class="grid-3">
+    <div class="card">
+      <h3>Frontend</h3>
+      <p>React application connects MetaMask, registers users, signs contract writes, and calls Laravel for off-chain data.</p>
+    </div>
+    <div class="card">
+      <h3>Backend</h3>
+      <p>Laravel API stores encrypted data locally and performs read-only contract checks before serving protected data.</p>
+    </div>
+    <div class="card">
+      <h3>Blockchain</h3>
+      <p>Sepolia contract records permission state and immutable audit events without storing medical content.</p>
+    </div>
+  </div>
+
+  <h2>3. Component Responsibilities</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Technology</th>
+        <th>Primary Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Smart Contract</td>
+        <td>Solidity 0.8.20, Hardhat</td>
+        <td>Provider registry, patient permissions, data scopes, emergency contacts, hash anchors, audit events.</td>
+      </tr>
+      <tr>
+        <td>Backend API</td>
+        <td>Laravel 11, Sanctum, PostgreSQL</td>
+        <td>User management, approval workflow, encrypted records, local file storage, permission enforcement.</td>
+      </tr>
+      <tr>
+        <td>Frontend</td>
+        <td>React 18, Vite, ethers.js v6, Tailwind</td>
+        <td>Wallet connection, dashboard workflows, user registration, signed smart contract writes, audit display.</td>
+      </tr>
+      <tr>
+        <td>Database</td>
+        <td>Local PostgreSQL</td>
+        <td>Stores users, encrypted document metadata, and encrypted patient data keys.</td>
+      </tr>
+      <tr>
+        <td>File Storage</td>
+        <td>Laravel local disk</td>
+        <td>Stores encrypted attachments under <code>storage/app/documents</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="page-break">4. Smart Contract Architecture</h2>
+  <p>
+    The <code>PatientHealthAccessControl</code> contract is the source of truth for provider registration and
+    patient-granted access. It is intentionally small and stores no clinical content.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>State</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>admin</code></td>
+        <td>Super Admin wallet, set to the contract deployer.</td>
+      </tr>
+      <tr>
+        <td><code>providers</code></td>
+        <td>Maps provider wallet addresses to on-chain registration status and provider name.</td>
+      </tr>
+      <tr>
+        <td><code>scopes</code></td>
+        <td>Maps numeric scope IDs to sensitive health data categories.</td>
+      </tr>
+      <tr>
+        <td><code>permissions</code></td>
+        <td>Patient to provider to scope mapping with granted flag, expiry time, and grant timestamp.</td>
+      </tr>
+      <tr>
+        <td><code>emergencyContacts</code></td>
+        <td>Patient-controlled emergency contact address.</td>
+      </tr>
+      <tr>
+        <td><code>dataHashes</code></td>
+        <td>Patient and scope to SHA-256 plaintext record hash anchor.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Default Data Scopes</h3>
+  <span class="pill">1 HIV Status</span>
+  <span class="pill">2 Mental Health Records</span>
+  <span class="pill">3 Gender Identity</span>
+  <span class="pill">4 General Medical History</span>
+  <span class="pill">5 Prescription Records</span>
+
+  <h3>Important Events</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Event</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ProviderRegistered</code></td><td>Provider has been registered by the Super Admin on-chain.</td></tr>
+      <tr><td><code>AccessGranted</code></td><td>Patient granted time-limited provider access to a scope.</td></tr>
+      <tr><td><code>AccessRevoked</code></td><td>Patient revoked provider access.</td></tr>
+      <tr><td><code>RecordAccessed</code></td><td>Registered provider recorded successful scope access.</td></tr>
+      <tr><td><code>AccessDenied</code></td><td>Provider attempted access without valid permission.</td></tr>
+      <tr><td><code>DataHashRegistered</code></td><td>Patient anchored a plaintext record hash.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Backend Architecture</h2>
+  <p>
+    The Laravel API owns local persistence and data protection. It never writes to the blockchain. Contract write
+    operations are signed by users through MetaMask in the frontend.
+  </p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>BlockchainService</h3>
+      <p>Uses JSON-RPC read calls against Sepolia to verify provider status, permissions, and data hashes.</p>
+      <ul>
+        <li><code>hasAccess(patient, provider, scopeId)</code></li>
+        <li><code>isRegisteredProvider(address)</code></li>
+        <li><code>verifyHash(patient, scopeId, hash)</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>EncryptionService</h3>
+      <p>Manages per-patient data encryption keys and encrypts fields/files before local persistence.</p>
+      <ul>
+        <li>AES-256-GCM field encryption</li>
+        <li>Per-patient DEKs</li>
+        <li>DEKs encrypted with Laravel <code>APP_KEY</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>6. Database Schema</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Table</th>
+        <th>Purpose</th>
+        <th>Key Columns</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>users</code></td>
+        <td>Patients, providers, and admins.</td>
+        <td><code>wallet_address</code>, <code>role</code>, <code>is_approved</code>, <code>organisation</code>, <code>specialty</code></td>
+      </tr>
+      <tr>
+        <td><code>documents</code></td>
+        <td>Encrypted document metadata and encrypted file references.</td>
+        <td><code>patient_address</code>, <code>provider_address</code>, <code>scope_id</code>, <code>file_hash</code>, <code>tx_hash</code></td>
+      </tr>
+      <tr>
+        <td><code>encryption_keys</code></td>
+        <td>Encrypted per-patient DEKs.</td>
+        <td><code>patient_address</code>, <code>encrypted_key</code></td>
+      </tr>
+      <tr>
+        <td><code>personal_access_tokens</code></td>
+        <td>Laravel Sanctum API authentication.</td>
+        <td>Token metadata and expiry fields.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="page-break">7. Security and Access Control</h2>
+  <ol>
+    <li><strong>Backend authorization is mandatory.</strong> The API verifies on-chain permission before returning documents or files.</li>
+    <li><strong>Frontend is not trusted.</strong> The browser may request data, but Laravel independently verifies the permission state.</li>
+    <li><strong>Blockchain does not store medical data.</strong> It stores permissions, audit events, scope names, and hashes only.</li>
+    <li><strong>Provider access requires two approvals.</strong> Provider must be locally approved and registered on-chain.</li>
+    <li><strong>Files are encrypted before disk storage.</strong> Attachments are stored under <code>storage/app/documents</code>.</li>
+    <li><strong>Hashes are computed from plaintext.</strong> This allows integrity checking against the on-chain anchor.</li>
+  </ol>
+
+  <div class="note">
+    <strong>Important:</strong> The current Sepolia RPC provider is Alchemy free tier. Its <code>eth_getLogs</code>
+    endpoint limits block ranges and compute units. Admin audit logs are therefore paginated and loaded in small chunks.
+  </div>
+
+  <h2>8. Primary Workflows</h2>
+
+  <h3>Provider Approval</h3>
+  <ol>
+    <li>Provider registers in the frontend and is created as pending in PostgreSQL.</li>
+    <li>Admin reviews the provider profile.</li>
+    <li>Super Admin wallet signs <code>registerProvider(address, name)</code> in MetaMask.</li>
+    <li>Laravel marks the provider as approved locally.</li>
+    <li>Provider can access patient data only after patient grants scope permission.</li>
+  </ol>
+
+  <h3>Patient Grants Access</h3>
+  <ol>
+    <li>Patient connects MetaMask and selects provider, scopes, and expiry.</li>
+    <li>Frontend sends a signed contract transaction such as <code>grantAccess</code> or <code>grantAccessBatch</code>.</li>
+    <li>Contract stores permission state and emits <code>AccessGranted</code>.</li>
+    <li>Provider dashboard can discover accessible patient scopes.</li>
+  </ol>
+
+  <h3>Provider Reads or Adds Records</h3>
+  <ol>
+    <li>Provider calls Laravel API with patient, provider, and scope identifiers.</li>
+    <li>Laravel confirms provider is approved and registered on-chain.</li>
+    <li>Laravel calls <code>getPermission</code> and checks granted and expiry fields.</li>
+    <li>Only after successful verification does Laravel decrypt and serve metadata or file content.</li>
+    <li>When adding a document, Laravel encrypts fields and files before storage.</li>
+  </ol>
+
+  <h2>9. Audit Logging</h2>
+  <p>
+    Audit records are contract events fetched from Sepolia. Patient logs focus on events involving the patient wallet.
+    Admin logs show a paginated system-wide view covering provider registration, scope setup, access grants,
+    revocations, access events, emergency access, and hash registration.
+  </p>
+  <p>
+    Due to RPC limits, the application builds targeted log windows using known deployment blocks and permission
+    timestamps. Admin audit pages load 15 records per page, reducing API pressure while preserving audit visibility.
+  </p>
+
+  <h2>10. Deployment and Runtime Configuration</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Area</th>
+        <th>Required Settings</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Contracts</td>
+        <td><code>DEPLOYER_PRIVATE_KEY</code>, <code>SEPOLIA_RPC_URL</code></td>
+      </tr>
+      <tr>
+        <td>Backend</td>
+        <td><code>APP_KEY</code>, PostgreSQL credentials, <code>BLOCKCHAIN_RPC_URL</code>, <code>CONTRACT_ADDRESS</code>, <code>FILESYSTEM_DISK=local</code></td>
+      </tr>
+      <tr>
+        <td>Frontend</td>
+        <td><code>VITE_CONTRACT_ADDRESS</code>, <code>VITE_SEPOLIA_RPC_URL</code>, <code>VITE_CONTRACT_DEPLOY_BLOCK</code>, <code>VITE_API_URL</code></td>
+      </tr>
+      <tr>
+        <td>Database</td>
+        <td>Local PostgreSQL database named <code>healthchain</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>11. Repository Structure</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Path</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>contracts/</code></td><td>Hardhat project and Solidity contract.</td></tr>
+      <tr><td><code>backend/</code></td><td>Laravel API, migrations, models, controllers, services.</td></tr>
+      <tr><td><code>frontend/</code></td><td>React/Vite application and dashboards.</td></tr>
+      <tr><td><code>docs/</code></td><td>Generated project documentation.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small">
+    Generated for HealthChain local development. Sensitive environment values, private keys, database passwords,
+    RPC keys, and uploaded medical files must never be committed or distributed.
+  </p>
+</body>
+</html>

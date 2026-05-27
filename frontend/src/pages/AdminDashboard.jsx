@@ -5,6 +5,7 @@ import {
   disableProvider,
   getAdmins,
   getCurrentUser,
+  getPatients,
   getPendingProviders,
   getProviders,
   loginWithWallet,
@@ -237,10 +238,11 @@ export default function AdminDashboard() {
     setMessage(null)
 
     try {
-      let [user, pending, providerList, chainScopes, adminAddress] = await Promise.all([
+      let [user, pending, providerList, patientList, chainScopes, adminAddress] = await Promise.all([
         getCurrentUser(),
         getPendingProviders(),
         getProviders(),
+        getPatients(),
         getScopes(),
         getAdmin(),
       ])
@@ -248,9 +250,10 @@ export default function AdminDashboard() {
       if (wallet.address && user.wallet_address?.toLowerCase() !== wallet.address.toLowerCase()) {
         const login = await loginWithWallet(wallet.address)
         user = login.user
-        ;[pending, providerList, chainScopes] = await Promise.all([
+        ;[pending, providerList, patientList, chainScopes] = await Promise.all([
           getPendingProviders(),
           getProviders(),
+          getPatients(),
           getScopes(),
         ])
       }
@@ -260,7 +263,10 @@ export default function AdminDashboard() {
       setProviders(pending)
       setAllProviders(providerList)
       setScopes(chainScopes)
-      getAllAuditLogs()
+      getAllAuditLogs({
+        patients: patientList.map((patient) => patient.wallet_address),
+        providers: providerList.map((provider) => provider.wallet_address),
+      })
         .then(setAuditLogs)
         .catch(() => {
           setMessage({ type: 'error', text: 'Audit logs are temporarily rate-limited. Try Refresh again in a minute.' })
@@ -275,9 +281,10 @@ export default function AdminDashboard() {
       if (wallet.address && [401, 403].includes(error.response?.status)) {
         try {
           const login = await loginWithWallet(wallet.address)
-          const [pending, providerList, chainScopes, adminAddress] = await Promise.all([
+          const [pending, providerList, patientList, chainScopes, adminAddress] = await Promise.all([
             getPendingProviders(),
             getProviders(),
+            getPatients(),
             getScopes(),
             getAdmin(),
           ])
@@ -287,7 +294,10 @@ export default function AdminDashboard() {
           setProviders(pending)
           setAllProviders(providerList)
           setScopes(chainScopes)
-          getAllAuditLogs()
+          getAllAuditLogs({
+            patients: patientList.map((patient) => patient.wallet_address),
+            providers: providerList.map((provider) => provider.wallet_address),
+          })
             .then(setAuditLogs)
             .catch(() => {
               setMessage({ type: 'error', text: 'Audit logs are temporarily rate-limited. Try Refresh again in a minute.' })

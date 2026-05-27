@@ -13,6 +13,7 @@ const AUDIT_LOG_REQUEST_DELAY_MS = 400
 const AUDIT_LOG_CACHE_MS = 60_000
 const AUDIT_LOG_RETRY_DELAYS_MS = [1200, 2500, 5000]
 const PATIENT_LOG_BLOCK_WINDOW = 30
+const DEPLOYMENT_LOG_WINDOW = 2000
 let auditLogCache = null
 let auditLogRequest = null
 const patientAuditLogCache = new Map()
@@ -445,8 +446,69 @@ export async function getPatientAuditLogs(patientAddress, providerAddresses = []
   return logs
 }
 
-export async function getAllAuditLogs() {
-  return getAuditLogs()
+async function buildPermissionLogRanges(contract, provider, patients, providers, latest) {
+  const scopeCount = Number(await contract.scopeCount())
+  const ranges = []
+
+  for (const patient of uniqueAddresses(patients)) {
+    for (const providerAddress of uniqueAddresses(providers)) {
+      for (let scopeId = 1; scopeId <= scopeCount; scopeId += 1) {
+        const permission = await contract.getPermission(patient, providerAddress, scopeId)
+        const grantedAt = Number(permission.grantedAt)
+
+        if (grantedAt === 0) {
+          continue
+        }
+
+        const blockNumber = await findBlockAtOrAfterTimestamp(provider, grantedAt, latest)
+
+        ranges.push({
+          fromBlock: Math.max(CONTRACT_DEPLOY_BLOCK || 0, blockNumber - PATIENT_LOG_BLOCK_WINDOW),
+          toBlock: Math.min(latest, blockNumber + PATIENT_LOG_BLOCK_WINDOW),
+        })
+      }
+    }
+  }
+
+  return ranges
+}
+
+export async function getAllAuditLogs(options = {}) {
+  assertConfigured()
+
+  const { patients = [], providers = [] } = options
+
+  if (patients.length === 0 || providers.length === 0) {
+    return getAuditLogs()
+  }
+
+  const now = Date.now()
+
+  if (auditLogCache && now - auditLogCache.createdAt < AUDIT_LOG_CACHE_MS) {
+    return auditLogCache.logs
+  }
+
+  const provider = new JsonRpcProvider(SEPOLIA_RPC_URL, Number(SEPOLIA_CHAIN_ID))
+  const contract = getReadContract()
+  const latest = await provider.getBlockNumber()
+  const fromBlock = CONTRACT_DEPLOY_BLOCK || Math.max(0, latest - 1000)
+  const ranges = [
+    {
+      fromBlock,
+      toBlock: Math.min(latest, fromBlock + DEPLOYMENT_LOG_WINDOW),
+    },
+    ...(await buildPermissionLogRanges(contract, provider, patients, providers, latest)),
+  ]
+
+  const rawLogs = await loadLogsForRanges(provider, ranges)
+  const logs = await enrichAuditLogs(rawLogs, contract, provider)
+
+  auditLogCache = {
+    createdAt: Date.now(),
+    logs,
+  }
+
+  return logs
 }
 
 async function waitForTx(tx) {

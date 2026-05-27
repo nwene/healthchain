@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getCurrentUser, loginWithWallet } from '../lib/api'
+import { getApprovedProviders, getCurrentUser, loginWithWallet } from '../lib/api'
 import { getPatientAuditLogs, txUrl } from '../lib/contract'
 import { useWallet } from '../contexts/WalletProvider'
 
@@ -108,13 +108,25 @@ export default function PatientLogs() {
         return
       }
 
-      setLogs(await getPatientAuditLogs(user.wallet_address))
+      const providers = await getApprovedProviders()
+      setLogs(await getPatientAuditLogs(
+        user.wallet_address,
+        providers.map((provider) => provider.wallet_address),
+      ))
     } catch (error) {
       if (wallet.address && [401, 403, 404].includes(error.response?.status)) {
         try {
           const login = await loginWithWallet(wallet.address)
           setCurrentUser(login.user)
-          setLogs(login.user.role === 'patient' ? await getPatientAuditLogs(login.user.wallet_address) : [])
+          if (login.user.role === 'patient') {
+            const providers = await getApprovedProviders()
+            setLogs(await getPatientAuditLogs(
+              login.user.wallet_address,
+              providers.map((provider) => provider.wallet_address),
+            ))
+          } else {
+            setLogs([])
+          }
           return
         } catch (loginError) {
           setMessage({

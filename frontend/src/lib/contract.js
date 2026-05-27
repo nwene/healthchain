@@ -12,8 +12,10 @@ const AUDIT_LOG_BLOCK_STEP = 10
 const AUDIT_LOG_REQUEST_DELAY_MS = 400
 const AUDIT_LOG_CACHE_MS = 60_000
 const AUDIT_LOG_RETRY_DELAYS_MS = [1200, 2500, 5000]
+const PATIENT_LOG_BLOCK_WINDOW = 30
 let auditLogCache = null
 let auditLogRequest = null
+const patientAuditLogCache = new Map()
 
 export const CONTRACT_ABI = [
   'function admin() view returns (address)',
@@ -244,6 +246,30 @@ function isPatientAuditLog(log, patientAddress) {
   return log.args.patient?.toLowerCase() === patientAddress.toLowerCase()
 }
 
+function uniqueAddresses(addresses) {
+  return [...new Set(
+    addresses
+      .filter(Boolean)
+      .map((address) => address.toLowerCase()),
+  )]
+}
+
+function mergeBlockRanges(ranges) {
+  return ranges
+    .sort((left, right) => left.fromBlock - right.fromBlock)
+    .reduce((merged, range) => {
+      const previous = merged[merged.length - 1]
+
+      if (!previous || range.fromBlock > previous.toBlock + 1) {
+        merged.push({ ...range })
+        return merged
+      }
+
+      previous.toBlock = Math.max(previous.toBlock, range.toBlock)
+      return merged
+    }, [])
+}
+
 function delay(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -275,6 +301,43 @@ async function getLogsWithRetry(provider, filter) {
   }
 
   return []
+}
+
+async function findBlockAtOrAfterTimestamp(provider, targetTimestamp, latestBlock) {
+  let low = CONTRACT_DEPLOY_BLOCK || Math.max(0, latestBlock - 1000)
+  let high = latestBlock
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    const block = await provider.getBlock(mid)
+
+    if (Number(block.timestamp) >= targetTimestamp) {
+      high = mid
+    } else {
+      low = mid + 1
+    }
+  }
+
+  return low
+}
+
+async function loadLogsForRanges(provider, ranges) {
+  const logs = []
+
+  for (const range of mergeBlockRanges(ranges)) {
+    for (let start = range.fromBlock; start <= range.toBlock; start += AUDIT_LOG_BLOCK_STEP) {
+      const end = Math.min(start + AUDIT_LOG_BLOCK_STEP - 1, range.toBlock)
+      const chunk = await getLogsWithRetry(provider, {
+        address: CONTRACT_ADDRESS,
+        fromBlock: start,
+        toBlock: end,
+      })
+
+      logs.push(...chunk)
+    }
+  }
+
+  return logs
 }
 
 export async function getAuditLogs() {
@@ -328,10 +391,58 @@ async function loadAuditLogs() {
   return enrichedLogs
 }
 
-export async function getPatientAuditLogs(patientAddress) {
-  const logs = await getAuditLogs()
+export async function getPatientAuditLogs(patientAddress, providerAddresses = []) {
+  assertConfigured()
 
-  return logs.filter((log) => isPatientAuditLog(log, patientAddress))
+  const providers = uniqueAddresses(providerAddresses)
+  const cacheKey = `${patientAddress.toLowerCase()}:${providers.join(',')}`
+  const cached = patientAuditLogCache.get(cacheKey)
+  const now = Date.now()
+
+  if (cached && now - cached.createdAt < AUDIT_LOG_CACHE_MS) {
+    return cached.logs
+  }
+
+  if (providers.length === 0) {
+    const logs = await getAuditLogs()
+    return logs.filter((log) => isPatientAuditLog(log, patientAddress))
+  }
+
+  const provider = new JsonRpcProvider(SEPOLIA_RPC_URL, Number(SEPOLIA_CHAIN_ID))
+  const contract = getReadContract()
+  const latest = await provider.getBlockNumber()
+  const scopeCount = Number(await contract.scopeCount())
+  const ranges = []
+
+  for (const providerAddress of providers) {
+    for (let scopeId = 1; scopeId <= scopeCount; scopeId += 1) {
+      const permission = await contract.getPermission(patientAddress, providerAddress, scopeId)
+      const grantedAt = Number(permission.grantedAt)
+
+      if (grantedAt === 0) {
+        continue
+      }
+
+      const blockNumber = await findBlockAtOrAfterTimestamp(provider, grantedAt, latest)
+
+      ranges.push({
+        fromBlock: Math.max(CONTRACT_DEPLOY_BLOCK || 0, blockNumber - PATIENT_LOG_BLOCK_WINDOW),
+        toBlock: Math.min(latest, blockNumber + PATIENT_LOG_BLOCK_WINDOW),
+      })
+    }
+  }
+
+  if (ranges.length === 0) {
+    patientAuditLogCache.set(cacheKey, { createdAt: now, logs: [] })
+    return []
+  }
+
+  const rawLogs = await loadLogsForRanges(provider, ranges)
+  const logs = (await enrichAuditLogs(rawLogs, contract, provider))
+    .filter((log) => isPatientAuditLog(log, patientAddress))
+
+  patientAuditLogCache.set(cacheKey, { createdAt: Date.now(), logs })
+  return logs
 }
 
 export async function getAllAuditLogs() {

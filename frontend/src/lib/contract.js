@@ -14,8 +14,10 @@ const AUDIT_LOG_CACHE_MS = 60_000
 const AUDIT_LOG_RETRY_DELAYS_MS = [1200, 2500, 5000]
 const PATIENT_LOG_BLOCK_WINDOW = 30
 const DEPLOYMENT_LOG_WINDOW = 600
+const AUDIT_LOG_PAGE_CHUNKS = 8
 let auditLogCache = null
 let auditLogRequest = null
+let auditLogPagePlanCache = null
 const patientAuditLogCache = new Map()
 
 export const CONTRACT_ABI = [
@@ -271,6 +273,21 @@ function mergeBlockRanges(ranges) {
     }, [])
 }
 
+function blockChunksFromRanges(ranges) {
+  const chunks = []
+
+  for (const range of mergeBlockRanges(ranges)) {
+    for (let start = range.fromBlock; start <= range.toBlock; start += AUDIT_LOG_BLOCK_STEP) {
+      chunks.push({
+        fromBlock: start,
+        toBlock: Math.min(start + AUDIT_LOG_BLOCK_STEP - 1, range.toBlock),
+      })
+    }
+  }
+
+  return chunks
+}
+
 function delay(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -324,24 +341,41 @@ async function findBlockAtOrAfterTimestamp(provider, targetTimestamp, latestBloc
 
 async function loadLogsForRanges(provider, ranges) {
   const logs = []
-  const mergedRanges = mergeBlockRanges(ranges)
+  const chunks = blockChunksFromRanges(ranges)
 
-  for (let rangeIndex = 0; rangeIndex < mergedRanges.length; rangeIndex += 1) {
-    const range = mergedRanges[rangeIndex]
+  for (let index = 0; index < chunks.length; index += 1) {
+    const range = chunks[index]
+    const chunk = await getLogsWithRetry(provider, {
+      address: CONTRACT_ADDRESS,
+      fromBlock: range.fromBlock,
+      toBlock: range.toBlock,
+    })
 
-    for (let start = range.fromBlock; start <= range.toBlock; start += AUDIT_LOG_BLOCK_STEP) {
-      const end = Math.min(start + AUDIT_LOG_BLOCK_STEP - 1, range.toBlock)
-      const chunk = await getLogsWithRetry(provider, {
-        address: CONTRACT_ADDRESS,
-        fromBlock: start,
-        toBlock: end,
-      })
+    logs.push(...chunk)
 
-      logs.push(...chunk)
+    if (index < chunks.length - 1) {
+      await delay(AUDIT_LOG_REQUEST_DELAY_MS)
+    }
+  }
 
-      if (end < range.toBlock || rangeIndex < mergedRanges.length - 1) {
-        await delay(AUDIT_LOG_REQUEST_DELAY_MS)
-      }
+  return logs
+}
+
+async function loadLogsForChunks(provider, chunks) {
+  const logs = []
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunkRange = chunks[index]
+    const chunk = await getLogsWithRetry(provider, {
+      address: CONTRACT_ADDRESS,
+      fromBlock: chunkRange.fromBlock,
+      toBlock: chunkRange.toBlock,
+    })
+
+    logs.push(...chunk)
+
+    if (index < chunks.length - 1) {
+      await delay(AUDIT_LOG_REQUEST_DELAY_MS)
     }
   }
 
@@ -480,21 +514,15 @@ async function buildPermissionLogRanges(contract, provider, patients, providers,
   return ranges
 }
 
-export async function getAllAuditLogs(options = {}) {
-  assertConfigured()
+function auditLogPlanKey(patients, providers) {
+  return JSON.stringify({
+    contract: CONTRACT_ADDRESS?.toLowerCase(),
+    patients: uniqueAddresses(patients),
+    providers: uniqueAddresses(providers),
+  })
+}
 
-  const { patients = [], providers = [] } = options
-
-  if (patients.length === 0 || providers.length === 0) {
-    return getAuditLogs()
-  }
-
-  const now = Date.now()
-
-  if (auditLogCache && now - auditLogCache.createdAt < AUDIT_LOG_CACHE_MS) {
-    return auditLogCache.logs
-  }
-
+async function buildSystemAuditLogChunks({ patients = [], providers = [] }) {
   const provider = new JsonRpcProvider(SEPOLIA_RPC_URL, Number(SEPOLIA_CHAIN_ID))
   const contract = getReadContract()
   const latest = await provider.getBlockNumber()
@@ -504,18 +532,72 @@ export async function getAllAuditLogs(options = {}) {
       fromBlock,
       toBlock: Math.min(latest, fromBlock + DEPLOYMENT_LOG_WINDOW),
     },
-    ...(await buildPermissionLogRanges(contract, provider, patients, providers, latest)),
   ]
 
-  const rawLogs = await loadLogsForRanges(provider, ranges)
-  const logs = await enrichAuditLogs(rawLogs, contract, provider)
-
-  auditLogCache = {
-    createdAt: Date.now(),
-    logs,
+  if (patients.length > 0 && providers.length > 0) {
+    ranges.push(...(await buildPermissionLogRanges(contract, provider, patients, providers, latest)))
   }
 
-  return logs
+  return {
+    contract,
+    provider,
+    chunks: blockChunksFromRanges(ranges),
+    latest,
+  }
+}
+
+export async function getAllAuditLogPage(options = {}) {
+  assertConfigured()
+
+  const {
+    patients = [],
+    providers = [],
+    page = 0,
+    pageSize = AUDIT_LOG_PAGE_CHUNKS,
+  } = options
+
+  const cacheKey = auditLogPlanKey(patients, providers)
+  const now = Date.now()
+  let plan = auditLogPagePlanCache
+
+  if (!plan || plan.cacheKey !== cacheKey || now - plan.createdAt > AUDIT_LOG_CACHE_MS) {
+    const nextPlan = await buildSystemAuditLogChunks({ patients, providers })
+    plan = {
+      ...nextPlan,
+      cacheKey,
+      createdAt: now,
+    }
+    auditLogPagePlanCache = plan
+  }
+
+  const safePageSize = Math.max(1, pageSize)
+  const totalPages = Math.max(1, Math.ceil(plan.chunks.length / safePageSize))
+  const safePage = Math.min(Math.max(0, page), totalPages - 1)
+  const pageChunks = plan.chunks.slice(
+    safePage * safePageSize,
+    safePage * safePageSize + safePageSize,
+  )
+
+  const rawLogs = await loadLogsForChunks(plan.provider, pageChunks)
+  const logs = await enrichAuditLogs(rawLogs, plan.contract, plan.provider)
+
+  return {
+    logs,
+    page: safePage,
+    pageSize: safePageSize,
+    totalPages,
+    totalChunks: plan.chunks.length,
+    hasNext: safePage < totalPages - 1,
+    hasPrevious: safePage > 0,
+    fromBlock: pageChunks[0]?.fromBlock || null,
+    toBlock: pageChunks[pageChunks.length - 1]?.toBlock || null,
+  }
+}
+
+export async function getAllAuditLogs(options = {}) {
+  const page = await getAllAuditLogPage(options)
+
+  return page.logs
 }
 
 async function waitForTx(tx) {

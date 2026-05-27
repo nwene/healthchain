@@ -11,7 +11,7 @@ import {
   loginWithWallet,
   rejectProvider,
 } from '../lib/api'
-import { addScope, getAdmin, getAllAuditLogs, getProvider, getScopes, registerProvider, removeProvider, txUrl } from '../lib/contract'
+import { addScope, getAdmin, getAllAuditLogPage, getProvider, getScopes, registerProvider, removeProvider, txUrl } from '../lib/contract'
 import { useWallet } from '../contexts/WalletProvider'
 
 function shortAddress(address) {
@@ -105,6 +105,42 @@ function AuditLogList({ logs }) {
           </div>
         </article>
       ))}
+    </div>
+  )
+}
+
+function AuditLogPager({ meta, isLoading, onPageChange }) {
+  const page = meta.page || 0
+  const totalPages = meta.totalPages || 1
+
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-sm text-slate-600">
+        Page <span className="font-semibold text-ink">{page + 1}</span> of <span className="font-semibold text-ink">{totalPages}</span>
+        {meta.fromBlock && meta.toBlock && (
+          <span className="ml-2 font-mono text-xs text-slate-500">
+            blocks {meta.fromBlock}-{meta.toBlock}
+          </span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(page - 1)}
+          disabled={isLoading || !meta.hasPrevious}
+          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(page + 1)}
+          disabled={isLoading || !meta.hasNext}
+          className="h-9 rounded-md bg-ink px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next
+        </button>
+      </div>
     </div>
   )
 }
@@ -214,8 +250,19 @@ export default function AdminDashboard() {
   const [contractAdmin, setContractAdmin] = useState(null)
   const [providers, setProviders] = useState([])
   const [allProviders, setAllProviders] = useState([])
+  const [patients, setPatients] = useState([])
   const [admins, setAdmins] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
+  const [auditLogMeta, setAuditLogMeta] = useState({
+    page: 0,
+    pageSize: 8,
+    totalPages: 1,
+    totalChunks: 0,
+    hasNext: false,
+    hasPrevious: false,
+    fromBlock: null,
+    toBlock: null,
+  })
   const [scopes, setScopes] = useState([])
   const [newScope, setNewScope] = useState('')
   const [newAdmin, setNewAdmin] = useState({
@@ -226,12 +273,41 @@ export default function AdminDashboard() {
   })
   const [isLoading, setIsLoading] = useState(true)
   const [busyId, setBusyId] = useState(null)
+  const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false)
   const [isAddingScope, setIsAddingScope] = useState(false)
   const [isCreatingAdmin, setIsCreatingAdmin] = useState(false)
   const [message, setMessage] = useState(null)
 
   const isApprovedAdmin = currentUser?.role === 'admin' && currentUser?.is_approved
   const isSuperAdmin = currentUser?.wallet_address?.toLowerCase() === contractAdmin?.toLowerCase()
+
+  async function loadAuditLogPage(page, patientList = patients, providerList = allProviders) {
+    setIsLoadingAuditLogs(true)
+
+    try {
+      const result = await getAllAuditLogPage({
+        page,
+        patients: patientList.map((patient) => patient.wallet_address),
+        providers: providerList.map((provider) => provider.wallet_address),
+      })
+
+      setAuditLogs(result.logs)
+      setAuditLogMeta({
+        page: result.page,
+        pageSize: result.pageSize,
+        totalPages: result.totalPages,
+        totalChunks: result.totalChunks,
+        hasNext: result.hasNext,
+        hasPrevious: result.hasPrevious,
+        fromBlock: result.fromBlock,
+        toBlock: result.toBlock,
+      })
+    } catch {
+      setMessage({ type: 'error', text: 'Audit logs are temporarily rate-limited. Try the next page or refresh again in a minute.' })
+    } finally {
+      setIsLoadingAuditLogs(false)
+    }
+  }
 
   const loadDashboard = useCallback(async () => {
     setIsLoading(true)
@@ -262,15 +338,9 @@ export default function AdminDashboard() {
       setContractAdmin(adminAddress)
       setProviders(pending)
       setAllProviders(providerList)
+      setPatients(patientList)
       setScopes(chainScopes)
-      getAllAuditLogs({
-        patients: patientList.map((patient) => patient.wallet_address),
-        providers: providerList.map((provider) => provider.wallet_address),
-      })
-        .then(setAuditLogs)
-        .catch(() => {
-          setMessage({ type: 'error', text: 'Audit logs are temporarily rate-limited. Try Refresh again in a minute.' })
-        })
+      loadAuditLogPage(0, patientList, providerList)
 
       if (user.wallet_address?.toLowerCase() === adminAddress.toLowerCase()) {
         setAdmins(await getAdmins())
@@ -293,15 +363,9 @@ export default function AdminDashboard() {
           setContractAdmin(adminAddress)
           setProviders(pending)
           setAllProviders(providerList)
+          setPatients(patientList)
           setScopes(chainScopes)
-          getAllAuditLogs({
-            patients: patientList.map((patient) => patient.wallet_address),
-            providers: providerList.map((provider) => provider.wallet_address),
-          })
-            .then(setAuditLogs)
-            .catch(() => {
-              setMessage({ type: 'error', text: 'Audit logs are temporarily rate-limited. Try Refresh again in a minute.' })
-            })
+          loadAuditLogPage(0, patientList, providerList)
           setAdmins(login.user.wallet_address?.toLowerCase() === adminAddress.toLowerCase() ? await getAdmins() : [])
           setIsLoading(false)
           return
@@ -547,9 +611,20 @@ export default function AdminDashboard() {
 
       <Panel
         title="All audit logs"
-        description="Every event emitted by the Sepolia contract, including provider registration, access grants, revocations, record access, emergency access, data hashes, and scope changes."
+        description="Paginated Sepolia contract events. Each page reads a small block range to stay within Alchemy free-tier limits."
       >
-        <AuditLogList logs={auditLogs} />
+        <AuditLogPager
+          meta={auditLogMeta}
+          isLoading={isLoadingAuditLogs}
+          onPageChange={(page) => loadAuditLogPage(page)}
+        />
+        {isLoadingAuditLogs ? (
+          <div className="rounded-md border border-dashed border-slate-300 p-6 text-sm text-slate-600">
+            Loading audit log page...
+          </div>
+        ) : (
+          <AuditLogList logs={auditLogs} />
+        )}
       </Panel>
 
       <Panel

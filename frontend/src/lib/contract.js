@@ -9,11 +9,11 @@ export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS
 export const SEPOLIA_RPC_URL = import.meta.env.VITE_SEPOLIA_RPC_URL
 export const CONTRACT_DEPLOY_BLOCK = Number(import.meta.env.VITE_CONTRACT_DEPLOY_BLOCK || 0)
 const AUDIT_LOG_BLOCK_STEP = 10
-const AUDIT_LOG_REQUEST_DELAY_MS = 400
+const AUDIT_LOG_REQUEST_DELAY_MS = 650
 const AUDIT_LOG_CACHE_MS = 60_000
 const AUDIT_LOG_RETRY_DELAYS_MS = [1200, 2500, 5000]
 const PATIENT_LOG_BLOCK_WINDOW = 30
-const DEPLOYMENT_LOG_WINDOW = 2000
+const DEPLOYMENT_LOG_WINDOW = 600
 let auditLogCache = null
 let auditLogRequest = null
 const patientAuditLogCache = new Map()
@@ -324,8 +324,11 @@ async function findBlockAtOrAfterTimestamp(provider, targetTimestamp, latestBloc
 
 async function loadLogsForRanges(provider, ranges) {
   const logs = []
+  const mergedRanges = mergeBlockRanges(ranges)
 
-  for (const range of mergeBlockRanges(ranges)) {
+  for (let rangeIndex = 0; rangeIndex < mergedRanges.length; rangeIndex += 1) {
+    const range = mergedRanges[rangeIndex]
+
     for (let start = range.fromBlock; start <= range.toBlock; start += AUDIT_LOG_BLOCK_STEP) {
       const end = Math.min(start + AUDIT_LOG_BLOCK_STEP - 1, range.toBlock)
       const chunk = await getLogsWithRetry(provider, {
@@ -335,6 +338,10 @@ async function loadLogsForRanges(provider, ranges) {
       })
 
       logs.push(...chunk)
+
+      if (end < range.toBlock || rangeIndex < mergedRanges.length - 1) {
+        await delay(AUDIT_LOG_REQUEST_DELAY_MS)
+      }
     }
   }
 

@@ -111,12 +111,12 @@ function AuditLogList({ logs }) {
 
 function AuditLogPager({ meta, isLoading, onPageChange }) {
   const page = meta.page || 0
-  const totalPages = meta.totalPages || 1
 
   return (
     <div className="mb-4 flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-slate-600">
-        Page <span className="font-semibold text-ink">{page + 1}</span> of <span className="font-semibold text-ink">{totalPages}</span>
+        Page <span className="font-semibold text-ink">{page + 1}</span>
+        <span className="ml-2 text-xs text-slate-500">{meta.pageSize} records per page</span>
         {meta.fromBlock && meta.toBlock && (
           <span className="ml-2 font-mono text-xs text-slate-500">
             blocks {meta.fromBlock}-{meta.toBlock}
@@ -255,14 +255,16 @@ export default function AdminDashboard() {
   const [auditLogs, setAuditLogs] = useState([])
   const [auditLogMeta, setAuditLogMeta] = useState({
     page: 0,
-    pageSize: 8,
-    totalPages: 1,
+    pageSize: 15,
+    totalPages: null,
     totalChunks: 0,
     hasNext: false,
     hasPrevious: false,
+    nextCursor: null,
     fromBlock: null,
     toBlock: null,
   })
+  const [auditLogCursors, setAuditLogCursors] = useState([{ chunkIndex: 0, logOffset: 0 }])
   const [scopes, setScopes] = useState([])
   const [newScope, setNewScope] = useState('')
   const [newAdmin, setNewAdmin] = useState({
@@ -285,12 +287,25 @@ export default function AdminDashboard() {
     setIsLoadingAuditLogs(true)
 
     try {
+      const cursor = auditLogCursors[page] || { chunkIndex: 0, logOffset: 0 }
       const result = await getAllAuditLogPage({
-        page,
+        pageIndex: page,
+        cursor,
+        pageSize: 15,
         patients: patientList.map((patient) => patient.wallet_address),
         providers: providerList.map((provider) => provider.wallet_address),
       })
 
+      setAuditLogCursors((current) => {
+        const next = [...current]
+        next[result.page] = cursor
+
+        if (result.nextCursor) {
+          next[result.page + 1] = result.nextCursor
+        }
+
+        return next
+      })
       setAuditLogs(result.logs)
       setAuditLogMeta({
         page: result.page,
@@ -299,6 +314,7 @@ export default function AdminDashboard() {
         totalChunks: result.totalChunks,
         hasNext: result.hasNext,
         hasPrevious: result.hasPrevious,
+        nextCursor: result.nextCursor,
         fromBlock: result.fromBlock,
         toBlock: result.toBlock,
       })
@@ -340,6 +356,7 @@ export default function AdminDashboard() {
       setAllProviders(providerList)
       setPatients(patientList)
       setScopes(chainScopes)
+      setAuditLogCursors([{ chunkIndex: 0, logOffset: 0 }])
       loadAuditLogPage(0, patientList, providerList)
 
       if (user.wallet_address?.toLowerCase() === adminAddress.toLowerCase()) {
@@ -365,6 +382,7 @@ export default function AdminDashboard() {
           setAllProviders(providerList)
           setPatients(patientList)
           setScopes(chainScopes)
+          setAuditLogCursors([{ chunkIndex: 0, logOffset: 0 }])
           loadAuditLogPage(0, patientList, providerList)
           setAdmins(login.user.wallet_address?.toLowerCase() === adminAddress.toLowerCase() ? await getAdmins() : [])
           setIsLoading(false)

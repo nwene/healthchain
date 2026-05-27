@@ -14,7 +14,7 @@ const AUDIT_LOG_CACHE_MS = 60_000
 const AUDIT_LOG_RETRY_DELAYS_MS = [1200, 2500, 5000]
 const PATIENT_LOG_BLOCK_WINDOW = 30
 const DEPLOYMENT_LOG_WINDOW = 600
-const AUDIT_LOG_PAGE_CHUNKS = 8
+const AUDIT_LOG_PAGE_SIZE = 15
 let auditLogCache = null
 let auditLogRequest = null
 let auditLogPagePlanCache = null
@@ -288,6 +288,12 @@ function blockChunksFromRanges(ranges) {
   return chunks
 }
 
+function sortRawLogsNewestFirst(logs) {
+  return [...logs].sort((left, right) => (
+    right.blockNumber - left.blockNumber || Number(right.index || 0) - Number(left.index || 0)
+  ))
+}
+
 function delay(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -380,6 +386,54 @@ async function loadLogsForChunks(provider, chunks) {
   }
 
   return logs
+}
+
+async function loadLogRecordsForPage(provider, chunks, cursor, limit) {
+  const logs = []
+  const fetchedChunks = []
+  let chunkIndex = cursor?.chunkIndex || 0
+  let logOffset = cursor?.logOffset || 0
+
+  while (chunkIndex < chunks.length && logs.length < limit) {
+    const chunkRange = chunks[chunkIndex]
+    const rawChunk = sortRawLogsNewestFirst(await getLogsWithRetry(provider, {
+      address: CONTRACT_ADDRESS,
+      fromBlock: chunkRange.fromBlock,
+      toBlock: chunkRange.toBlock,
+    }))
+    const available = rawChunk.slice(logOffset)
+    const remaining = limit - logs.length
+    const selected = available.slice(0, remaining)
+
+    if (selected.length > 0) {
+      fetchedChunks.push(chunkRange)
+      logs.push(...selected)
+    }
+
+    if (available.length > remaining) {
+      return {
+        logs,
+        cursor: {
+          chunkIndex,
+          logOffset: logOffset + selected.length,
+        },
+        fetchedChunks,
+      }
+    }
+
+    chunkIndex += 1
+    logOffset = 0
+
+    if (chunkIndex < chunks.length && logs.length < limit) {
+      await delay(AUDIT_LOG_REQUEST_DELAY_MS)
+    }
+  }
+
+  return {
+    logs,
+    cursor: null,
+    fetchedChunks,
+  }
 }
 
 export async function getAuditLogs() {
@@ -541,7 +595,7 @@ async function buildSystemAuditLogChunks({ patients = [], providers = [] }) {
   return {
     contract,
     provider,
-    chunks: blockChunksFromRanges(ranges),
+    chunks: blockChunksFromRanges(ranges).sort((left, right) => right.fromBlock - left.fromBlock),
     latest,
   }
 }
@@ -552,8 +606,9 @@ export async function getAllAuditLogPage(options = {}) {
   const {
     patients = [],
     providers = [],
-    page = 0,
-    pageSize = AUDIT_LOG_PAGE_CHUNKS,
+    cursor = { chunkIndex: 0, logOffset: 0 },
+    pageIndex = 0,
+    pageSize = AUDIT_LOG_PAGE_SIZE,
   } = options
 
   const cacheKey = auditLogPlanKey(patients, providers)
@@ -571,26 +626,28 @@ export async function getAllAuditLogPage(options = {}) {
   }
 
   const safePageSize = Math.max(1, pageSize)
-  const totalPages = Math.max(1, Math.ceil(plan.chunks.length / safePageSize))
-  const safePage = Math.min(Math.max(0, page), totalPages - 1)
-  const pageChunks = plan.chunks.slice(
-    safePage * safePageSize,
-    safePage * safePageSize + safePageSize,
-  )
-
-  const rawLogs = await loadLogsForChunks(plan.provider, pageChunks)
+  const safePageIndex = Math.max(0, pageIndex)
+  const page = await loadLogRecordsForPage(plan.provider, plan.chunks, cursor, safePageSize)
+  const rawLogs = page.logs
   const logs = await enrichAuditLogs(rawLogs, plan.contract, plan.provider)
+  const fromBlock = page.fetchedChunks.length > 0
+    ? Math.min(...page.fetchedChunks.map((chunk) => chunk.fromBlock))
+    : null
+  const toBlock = page.fetchedChunks.length > 0
+    ? Math.max(...page.fetchedChunks.map((chunk) => chunk.toBlock))
+    : null
 
   return {
     logs,
-    page: safePage,
+    page: safePageIndex,
     pageSize: safePageSize,
-    totalPages,
+    totalPages: null,
     totalChunks: plan.chunks.length,
-    hasNext: safePage < totalPages - 1,
-    hasPrevious: safePage > 0,
-    fromBlock: pageChunks[0]?.fromBlock || null,
-    toBlock: pageChunks[pageChunks.length - 1]?.toBlock || null,
+    hasNext: page.cursor !== null,
+    hasPrevious: safePageIndex > 0,
+    nextCursor: page.cursor,
+    fromBlock,
+    toBlock,
   }
 }
 

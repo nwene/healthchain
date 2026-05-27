@@ -523,7 +523,84 @@
     timestamps. Admin audit pages load 15 records per page, reducing API pressure while preserving audit visibility.
   </p>
 
-  <h2>10. Deployment and Runtime Configuration</h2>
+  <h2>10. Alchemy and RPC Provider Layer</h2>
+  <p>
+    HealthChain does not run its own Ethereum node. Instead, it uses Alchemy as the JSON-RPC gateway for Ethereum
+    Sepolia. Alchemy receives RPC requests from the frontend and backend, forwards them to Sepolia infrastructure,
+    and returns blockchain data such as contract state, transaction receipts, block metadata, and emitted events.
+  </p>
+  <p>
+    In this project, Alchemy is the only required external infrastructure service. The database, API, frontend,
+    and file storage all run locally. Sepolia is accessed through the configured Alchemy endpoint:
+    <code>https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY</code>.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Usage Area</th>
+        <th>How HealthChain Uses Alchemy</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Backend permission checks</td>
+        <td>
+          Laravel uses Alchemy for read-only <code>eth_call</code> requests. Before serving protected documents,
+          the backend calls the contract to verify provider registration and active patient permission.
+        </td>
+      </tr>
+      <tr>
+        <td>Frontend contract reads</td>
+        <td>
+          React uses an ethers.js <code>JsonRpcProvider</code> connected to Alchemy to read scopes, provider status,
+          emergency contacts, permissions, and audit events.
+        </td>
+      </tr>
+      <tr>
+        <td>Frontend contract writes</td>
+        <td>
+          Write transactions are signed by MetaMask. Alchemy is used indirectly by MetaMask or the configured RPC
+          endpoint to broadcast and confirm transactions on Sepolia.
+        </td>
+      </tr>
+      <tr>
+        <td>Audit logs</td>
+        <td>
+          The app calls <code>eth_getLogs</code> through Alchemy to retrieve contract events such as
+          <code>AccessGranted</code>, <code>AccessRevoked</code>, <code>RecordAccessed</code>, and
+          <code>ProviderRegistered</code>.
+        </td>
+      </tr>
+      <tr>
+        <td>Block timestamps</td>
+        <td>
+          After fetching logs, the app uses block reads through Alchemy to convert block numbers into human-readable
+          event timestamps.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Why Pagination Is Required</h3>
+  <p>
+    Alchemy's free tier applies throughput and block-range limits to <code>eth_getLogs</code>. A broad request over
+    tens of thousands of Sepolia blocks can be rejected with a compute-unit or block-range error. To avoid this,
+    HealthChain does not request the entire contract history at once.
+  </p>
+  <p>
+    The admin audit screen uses paginated log loading. Each page returns 15 audit records and internally reads logs in
+    small 10-block chunks. This keeps requests within Alchemy's free-tier constraints while still allowing the admin to
+    browse the full audit trail page by page.
+  </p>
+
+  <div class="note">
+    <strong>Operational recommendation:</strong> For production deployments, use a paid RPC plan, a dedicated Ethereum
+    node, or an indexing service if audit volume becomes high. The current implementation is optimized for local
+    development and Sepolia demonstration use.
+  </div>
+
+  <h2>11. Deployment and Runtime Configuration</h2>
   <table>
     <thead>
       <tr>
@@ -551,7 +628,7 @@
     </tbody>
   </table>
 
-  <h2>11. Repository Structure</h2>
+  <h2>12. Repository Structure</h2>
   <table>
     <thead>
       <tr>
